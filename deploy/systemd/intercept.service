@@ -1,0 +1,22 @@
+[Unit]
+Description=INTERCEPT Signal Intelligence Platform
+After=network-online.target gpsd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/orangepi/intercept
+Environment=INTERCEPT_HOST=0.0.0.0
+Environment=INTERCEPT_PORT=5050
+Environment=INTERCEPT_DISABLE_AUTH=1
+Environment=INTERCEPT_SUDO_UID=1000
+Environment=INTERCEPT_SUDO_GID=1000
+ExecStart=/home/orangepi/intercept/start.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/var/log/intercept.log
+StandardError=append:/var/log/intercept.log
+
+[Install]
+WantedBy=multi-user.target

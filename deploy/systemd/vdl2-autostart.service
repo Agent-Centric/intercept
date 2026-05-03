@@ -1,0 +1,12 @@
+[Unit]
+Description=INTERCEPT VDL2 Autostart
+After=intercept.service
+Requires=intercept.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/orangepi/intercept-vdl2-start.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
