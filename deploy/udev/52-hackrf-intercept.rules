@@ -1,0 +1,22 @@
+# HackRF One / HackRF Pro
+# Grants plugdev group access and triggers INTERCEPT device probe on connect/disconnect
+
+# HackRF Jawbreaker
+SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="604b", \
+    MODE="660", GROUP="plugdev", ENV{ID_SOFTWARE_RADIO}="1", \
+    SYMLINK+="hackrf-%k", \
+    RUN+="/usr/local/bin/intercept-hackrf-hotplug.sh add"
+
+# HackRF One / HackRF Pro
+SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="6089", \
+    MODE="660", GROUP="plugdev", ENV{ID_SOFTWARE_RADIO}="1", \
+    SYMLINK+="hackrf-%k", \
+    RUN+="/usr/local/bin/intercept-hackrf-hotplug.sh add"
+
+# HackRF DFU mode
+SUBSYSTEM=="usb", ATTR{idVendor}=="1fc9", ATTR{idProduct}=="000c", \
+    MODE="660", GROUP="plugdev", ENV{ID_SOFTWARE_RADIO}="1"
+
+# HackRF remove event
+ACTION=="remove", ENV{ID_VENDOR_ID}=="1d50", ENV{ID_MODEL_ID}=="6089", \
+    RUN+="/usr/local/bin/intercept-hackrf-hotplug.sh remove"
