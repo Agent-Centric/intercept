@@ -150,6 +150,42 @@ done
 info "Starting intercept.service..."
 systemctl restart intercept.service && ok "intercept.service started" || fail "intercept.service failed to start — check: journalctl -u intercept.service"
 
+
+# =============================================================================
+section "7b. udev — HackRF device rules and hotplug handler"
+# =============================================================================
+UDEV_RULES_SRC="$SCRIPT_DIR/udev/52-hackrf-intercept.rules"
+UDEV_RULES_DST="/etc/udev/rules.d/52-hackrf-intercept.rules"
+HOTPLUG_SRC="$SCRIPT_DIR/intercept-hackrf-hotplug.sh"
+HOTPLUG_DST="/usr/local/bin/intercept-hackrf-hotplug.sh"
+
+if [ ! -f "$UDEV_RULES_SRC" ]; then
+    warn "HackRF udev rules not found: $UDEV_RULES_SRC — skipping"
+else
+    cp "$UDEV_RULES_SRC" "$UDEV_RULES_DST"
+    ok "HackRF udev rules installed"
+fi
+
+if [ ! -f "$HOTPLUG_SRC" ]; then
+    warn "HackRF hotplug script not found: $HOTPLUG_SRC — skipping"
+else
+    cp "$HOTPLUG_SRC" "$HOTPLUG_DST"
+    chmod +x "$HOTPLUG_DST"
+    ok "HackRF hotplug script installed"
+fi
+
+if [ -f "$UDEV_RULES_DST" ]; then
+    udevadm control --reload-rules && udevadm trigger --subsystem-match=usb
+    ok "udev rules reloaded"
+fi
+
+if ! groups "$REAL_USER" | grep -qw plugdev; then
+    usermod -aG plugdev "$REAL_USER"
+    ok "Added $REAL_USER to plugdev group"
+else
+    ok "$REAL_USER already in plugdev group"
+fi
+
 # =============================================================================
 section "8. Verification"
 # =============================================================================
@@ -173,6 +209,8 @@ check "Port 5050 listening"             "ss -tlnp | grep -q 5050"
 check "BPF restriction active"          "sysctl kernel.unprivileged_bpf_disabled | grep -q = 1"
 check "DVB driver blacklisted"          "grep -q dvb_usb_rtl28xxu /etc/modprobe.d/blacklist-rtl-dvb.conf"
 check "flask-sock installed"            "[ -x \"$VENV_PIP\" ] && $VENV_PIP show flask-sock"
+check "HackRF udev rules installed"    "[ -f /etc/udev/rules.d/52-hackrf-intercept.rules ]"
+check "HackRF hotplug installed"       "[ -x /usr/local/bin/intercept-hackrf-hotplug.sh ]"
 
 echo ""
 echo -e "${BOLD}Results: ${GREEN}${PASS} passed${NC}  ${YELLOW}${FAIL} warnings${NC}"
