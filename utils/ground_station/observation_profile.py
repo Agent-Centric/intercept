@@ -115,7 +115,7 @@ class ObservationProfile:
     @classmethod
     def from_row(cls, row) -> ObservationProfile:
         tasks = []
-        raw_tasks = row.get('tasks_json', None)
+        raw_tasks = row['tasks_json'] if 'tasks_json' in row.keys() else None
         if raw_tasks:
             try:
                 tasks = normalize_tasks(json.loads(raw_tasks))
