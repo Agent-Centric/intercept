@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from flask import Blueprint, Response, request
 
 from utils.alerts import get_alert_manager
@@ -56,6 +58,33 @@ def list_events():
     severity = request.args.get("severity")
     events = manager.list_events(limit=limit, mode=mode, severity=severity)
     return api_success(data={"events": events})
+
+
+@alerts_bp.route("/test", methods=["POST"])
+def test_alert():
+    data = request.get_json(silent=True) or {}
+    manager = get_alert_manager()
+
+    mode = str(data.get("mode") or "aprs")
+    severity = str(data.get("severity") or "critical")
+    title = str(data.get("title") or "APRS Test Alert")
+    message = str(data.get("message") or "Synthetic APRS alert triggered for in-app notification verification.")
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {"test": True}
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    test_event = {
+        "id": None,
+        "rule_id": None,
+        "mode": mode,
+        "event_type": "test_alert",
+        "severity": severity,
+        "title": title,
+        "message": message,
+        "payload": payload,
+        "created_at": created_at,
+    }
+    manager._queue_event(test_event)
+    return api_success(data={"event": test_event})
 
 
 @alerts_bp.route("/stream", methods=["GET"])

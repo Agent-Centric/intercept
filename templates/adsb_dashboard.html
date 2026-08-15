@@ -2600,14 +2600,16 @@ sudo make install</code>
                     return;
                 }
 
-                // Try to start tracking on first available device
-                const device = devices[0].index !== undefined ? devices[0].index : 0;
-                console.log(`[ADS-B] Auto-starting local tracking on device ${device}...`);
+                // Prefer the first detected device and its real type (HackRF, not RTL default)
+                const first = devices[0];
+                const device = first.index !== undefined ? first.index : 0;
+                const sdrType = first.sdr_type || 'rtlsdr';
+                console.log(`[ADS-B] Auto-starting local tracking on ${sdrType}:${device}...`);
 
                 const startResponse = await fetch('/adsb/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ device: device, bias_t: getBiasTEnabled() })
+                    body: JSON.stringify({ device: device, sdr_type: sdrType, bias_t: getBiasTEnabled() })
                 });
 
                 const result = await startResponse.json();

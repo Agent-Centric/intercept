@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from utils.dependencies import get_tool_path
 
-from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
+from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType, build_readsb_soapy_adsb_command
 
 
 class HydraSDRCommandBuilder(CommandBuilder):
@@ -75,10 +75,7 @@ class HydraSDRCommandBuilder(CommandBuilder):
     def build_adsb_command(self, device: SDRDevice, gain: float | None = None, bias_t: bool = False) -> list[str]:
         # 1090 MHz is within the RFOne's range (24–1800 MHz)
         device_str = self._build_device_string(device)
-        cmd = ["readsb", "--net", "--device-type", "soapysdr", "--device", device_str, "--quiet"]
-        if gain is not None:
-            cmd.extend(["--gain", str(int(gain))])
-        return cmd
+        return build_readsb_soapy_adsb_command(device_str, gain=gain)
 
     def build_ism_command(
         self,

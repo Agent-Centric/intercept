@@ -1105,11 +1105,13 @@ def start_adsb():
         )
         write_dump1090_pid(app_module.adsb_process.pid)
 
-        # Poll for dump1090 readiness instead of blind sleep
+        # Poll for dump1090/readsb readiness. SoapySDR (HackRF etc.)
+        # needs longer than RTL dump1090 to open USB and bind SBS.
         dump1090_ready = False
         poll_interval = 0.1
         elapsed = 0.0
-        while elapsed < DUMP1090_START_WAIT:
+        start_wait = 8.0 if sdr_type != SDRType.RTL_SDR else DUMP1090_START_WAIT
+        while elapsed < start_wait:
             if app_module.adsb_process.poll() is not None:
                 break  # Process exited early — handle below
             if check_dump1090_service():
@@ -1177,13 +1179,14 @@ def start_adsb():
             if stderr_output and len(stderr_output) < 300:
                 full_msg += f" (Details: {stderr_output})"
 
-            return jsonify({"status": "error", "error_type": error_type, "message": full_msg})
+            http_status = 409 if error_type == "DEVICE_BUSY" else 500
+            return jsonify({"status": "error", "error_type": error_type, "message": full_msg}), http_status
 
         # dump1090 is still running but SBS port never came up — device may be
         # held by a stale process from a previous mode.  Kill it so the USB
         # device is released and report a clear error to the frontend.
         if not dump1090_ready:
-            logger.warning("dump1090 running but SBS port not available after %.1fs — killing", DUMP1090_START_WAIT)
+            logger.warning("dump1090 running but SBS port not available after %.1fs — killing", start_wait)
             try:
                 pgid = os.getpgid(app_module.adsb_process.pid)
                 os.killpg(pgid, 15)
