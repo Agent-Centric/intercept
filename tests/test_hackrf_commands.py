@@ -65,8 +65,9 @@ class TestBuildAdsbCommand:
     def test_includes_serial_in_device_string(self):
         builder = HackRFCommandBuilder()
         cmd = builder.build_adsb_command(_make_device(serial='deadbeef'), gain=40)
-        device_idx = cmd.index('--device')
+        device_idx = cmd.index('--soapy-device')
         assert 'deadbeef' in cmd[device_idx + 1]
+        assert cmd[cmd.index('--net-sbs-port') + 1] == '30003'
 
 
 class TestBuildIQCaptureCommand:

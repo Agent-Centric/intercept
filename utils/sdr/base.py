@@ -11,6 +11,39 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 
+# wiedehopf readsb: Soapy device is --soapy-device, not --device
+# (--device is an alias for --device-type). SBS ports default to 0 unless set.
+try:
+    from utils.constants import ADSB_SBS_PORT
+except Exception:  # pragma: no cover - keep builders import-safe
+    ADSB_SBS_PORT = 30003
+
+
+def build_readsb_soapy_adsb_command(
+    device_str: str,
+    gain: float | None = None,
+    bias_setting: str | None = None,
+) -> list[str]:
+    """Build a wiedehopf-readsb command for SoapySDR hardware.
+
+    ``bias_setting`` is appended to the Soapy device string when set
+    (e.g. ``bias_tx=true`` for HackRF antenna port power).
+    """
+    if bias_setting:
+        device_str = f'{device_str},{bias_setting}'
+    cmd = [
+        'readsb',
+        '--net',
+        '--net-bind-address', '127.0.0.1',
+        '--net-sbs-port', str(ADSB_SBS_PORT),
+        '--device-type', 'soapysdr',
+        '--soapy-device', device_str,
+        '--quiet',
+    ]
+    if gain is not None:
+        cmd.extend(['--gain', str(int(gain))])
+    return cmd
+
 
 class SDRType(Enum):
     """Supported SDR hardware types."""

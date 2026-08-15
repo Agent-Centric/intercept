@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from utils.dependencies import get_tool_path
 
-from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
+from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType, build_readsb_soapy_adsb_command
 
 
 class AirspyCommandBuilder(CommandBuilder):
@@ -109,22 +109,7 @@ class AirspyCommandBuilder(CommandBuilder):
         Uses readsb which has better SoapySDR support.
         """
         device_str = self._build_device_string(device)
-
-        cmd = [
-            'readsb',
-            '--net',
-            '--device-type', 'soapysdr',
-            '--device', device_str,
-            '--quiet'
-        ]
-
-        if gain is not None:
-            cmd.extend(['--gain', str(int(gain))])
-
-        if bias_t:
-            cmd.extend(['--enable-bias-t'])
-
-        return cmd
+        return build_readsb_soapy_adsb_command(device_str, gain=gain)
 
     def build_ism_command(
         self,

@@ -144,13 +144,13 @@ For non-RTL-SDR devices, ADS-B requires `readsb` compiled with SoapySDR support 
 1. Start readsb with your device:
    ```bash
    # HackRF
-   readsb --device-type soapysdr --device driver=hackrf --net --quiet
+   readsb --device-type soapysdr --soapy-device driver=hackrf --net --net-sbs-port 30003 --quiet
 
    # Airspy
-   readsb --device-type soapysdr --device driver=airspy --net --quiet
+   readsb --device-type soapysdr --soapy-device driver=airspy --net --net-sbs-port 30003 --quiet
 
    # LimeSDR
-   readsb --device-type soapysdr --device driver=lime --net --quiet
+   readsb --device-type soapysdr --soapy-device driver=lime --net --net-sbs-port 30003 --quiet
    ```
 
 2. In Intercept's ADS-B dashboard:
