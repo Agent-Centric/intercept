@@ -114,6 +114,16 @@ class BluetoothScanner:
                 started, backend_used = self._start_dbus(adapter, transport, rssi_threshold)
             elif mode == "ubertooth":
                 started, backend_used = self._start_ubertooth()
+            elif mode == "tscm":
+                # Host adapter (Bleak/BlueZ) for manufacturer/tracker data, plus
+                # Ubertooth One as a parallel passive BLE ear when it is plugged in.
+                started, backend_used = self._start_fallback(adapter, "auto")
+                if not started:
+                    started, backend_used = self._start_dbus(adapter, transport, rssi_threshold)
+                uber_started, _ = self._start_ubertooth()
+                if uber_started:
+                    backend_used = f"{backend_used}+ubertooth" if started and backend_used else "ubertooth"
+                    started = True
 
             # Fallback: try non-DBus methods if DBus failed or wasn't requested
             if not started and (original_mode == "auto" or mode in ("bleak", "hcitool", "bluetoothctl")):
@@ -167,7 +177,15 @@ class BluetoothScanner:
         return False, None
 
     def _start_ubertooth(self) -> tuple[bool, str | None]:
-        """Start Ubertooth One scanner."""
+        """Start Ubertooth One scanner if tools and hardware are present."""
+        if self._ubertooth_scanner and self._ubertooth_scanner.is_scanning:
+            return True, "ubertooth"
+        if not UbertoothScanner.is_available():
+            logger.debug("Ubertooth tools not installed; skipping")
+            return False, None
+        if not UbertoothScanner.hardware_present():
+            logger.info("Ubertooth One not attached; TSCM will use host adapter only")
+            return False, None
         try:
             self._ubertooth_scanner = UbertoothScanner(
                 on_observation=self._handle_observation,
@@ -177,6 +195,16 @@ class BluetoothScanner:
         except Exception as e:
             logger.warning(f"Ubertooth scanner failed: {e}")
         return False, None
+
+    def attach_ubertooth(self) -> bool:
+        """Start Ubertooth alongside an already-running host scan. Safe if already up."""
+        with self._lock:
+            started, _ = self._start_ubertooth()
+            if started and self._active_backend and "ubertooth" not in (self._active_backend or ""):
+                self._active_backend = f"{self._active_backend}+ubertooth"
+                self._status.backend = self._active_backend
+                logger.info(f"Ubertooth attached to running scan ({self._active_backend})")
+            return started
 
     def _start_fallback(self, adapter: str, preferred: str) -> tuple[bool, str | None]:
         """Start fallback scanner."""

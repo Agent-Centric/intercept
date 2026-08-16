@@ -55,10 +55,24 @@ class UbertoothScanner:
         self._reader_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
+    UBERTOOTH_USB_IDS = ("1d50:6002", "1d50:6003")
+
     @staticmethod
     def is_available() -> bool:
         """Check if ubertooth-btle is available on the system."""
         return shutil.which("ubertooth-btle") is not None
+
+    @classmethod
+    def hardware_present(cls) -> bool:
+        """Return True if an Ubertooth USB device is attached."""
+        try:
+            result = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=3)
+            blob = (result.stdout or "").lower()
+            if "ubertooth" in blob:
+                return True
+            return any(usb_id in blob for usb_id in cls.UBERTOOTH_USB_IDS)
+        except Exception:
+            return False
 
     def start(self) -> bool:
         """
@@ -331,4 +345,5 @@ class UbertoothScanner:
             service_uuids=service_uuids,
             service_data=service_data,
             is_connectable=is_connectable,
+            adapter_id="ubertooth",
         )

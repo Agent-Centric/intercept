@@ -1008,13 +1008,13 @@ body {
 /* Selected aircraft panel */
 .selected-aircraft {
     flex-shrink: 0;
-    max-height: 280px;
+    max-height: 420px;
     overflow-y: auto;
 }
 
 @media (min-height: 900px) {
     .selected-aircraft {
-        max-height: 340px;
+        max-height: 500px;
     }
 }
 
@@ -1027,11 +1027,33 @@ body {
 }
 
 #aircraftPhotoContainer img {
-    max-height: 100px;
+    max-height: 120px;
     width: 100%;
     object-fit: cover;
     border-radius: 6px;
     border: 1px solid rgba(var(--accent-cyan-rgb), 0.3);
+}
+
+.aircraft-photo-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 88px;
+    border-radius: 6px;
+    border: 1px dashed rgba(var(--accent-cyan-rgb), 0.35);
+    background: rgba(0, 212, 255, 0.06);
+    color: var(--text-secondary);
+    font-size: 10px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    gap: 4px;
+}
+
+.aircraft-photo-glyph {
+    font-size: 22px;
+    line-height: 1;
+    color: var(--accent-cyan);
 }
 
 .selected-callsign {

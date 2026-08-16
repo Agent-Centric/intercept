@@ -137,6 +137,7 @@ class BTDeviceAggregate:
     is_connectable: bool = False
     is_paired: bool = False
     is_connected: bool = False
+    heard_by: list[str] = field(default_factory=list)
 
     # Heuristic flags
     is_new: bool = False
@@ -257,6 +258,7 @@ class BTDeviceAggregate:
             "is_connectable": self.is_connectable,
             "is_paired": self.is_paired,
             "is_connected": self.is_connected,
+            "heard_by": list(self.heard_by),
             # Heuristics
             "heuristics": {
                 "is_new": self.is_new,

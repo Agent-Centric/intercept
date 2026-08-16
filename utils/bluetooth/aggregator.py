@@ -122,6 +122,10 @@ class DeviceAggregator:
             # Merge device info (prefer non-None values)
             self._merge_device_info(device, observation)
 
+            radio = observation.adapter_id or "host"
+            if radio not in device.heard_by:
+                device.heard_by.append(radio)
+
             # Update range band
             self._update_range_band(device)
 

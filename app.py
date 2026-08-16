@@ -451,6 +451,10 @@ def require_login():
     if request.path.startswith("/listening/audio/"):
         return None
 
+    # Aircraft photos are public thumbnails; <img> tags must not bounce to /login
+    if request.path.startswith("/adsb/aircraft-photo/"):
+        return None
+
     # Allow WebSocket upgrade requests (page load already required auth)
     if request.path.startswith("/ws/"):
         return None

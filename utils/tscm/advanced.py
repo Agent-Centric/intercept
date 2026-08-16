@@ -274,6 +274,23 @@ def _detect_wifi_capabilities(caps: SweepCapabilities, interface: str) -> None:
             caps.wifi_limitations = ["WiFi scanning tools not available"]
 
 
+def _ubertooth_capability_note() -> str:
+    """Describe Ubertooth status for the TSCM capability banner."""
+    try:
+        from utils.bluetooth.ubertooth_scanner import UbertoothScanner
+
+        if UbertoothScanner.hardware_present() and UbertoothScanner.is_available():
+            return (
+                "Ubertooth One attached — TSCM will run it in parallel with the host "
+                "Bluetooth adapter for passive BLE."
+            )
+        if UbertoothScanner.is_available():
+            return "ubertooth-btle is installed but no Ubertooth One is attached."
+    except Exception:
+        pass
+    return ""
+
+
 def _detect_bluetooth_capabilities(caps: SweepCapabilities, adapter: str) -> None:
     """Detect Bluetooth adapter capabilities."""
     caps.bt_adapter = adapter
@@ -324,9 +341,19 @@ def _detect_bluetooth_capabilities(caps: SweepCapabilities, adapter: str) -> Non
                     if "hci version" in line.lower():
                         caps.bt_version = line.strip()
                         break
+
+                ubertooth_note = _ubertooth_capability_note()
+                if ubertooth_note:
+                    caps.bt_limitations.append(ubertooth_note)
+                    extra = " + Ubertooth One"
+                    if caps.bt_version and extra not in caps.bt_version:
+                        caps.bt_version = f"{caps.bt_version}{extra}"
             else:
                 caps.bt_mode = BluetoothMode.UNAVAILABLE
                 caps.bt_limitations = ["No Bluetooth adapter found"]
+                ubertooth_note = _ubertooth_capability_note()
+                if ubertooth_note:
+                    caps.bt_limitations.append(ubertooth_note)
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
             caps.bt_mode = BluetoothMode.UNAVAILABLE

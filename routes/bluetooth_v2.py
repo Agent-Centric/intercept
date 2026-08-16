@@ -240,7 +240,7 @@ def start_scan():
     rssi_threshold = data.get("rssi_threshold", -100)
 
     # Validate mode
-    valid_modes = ("auto", "dbus", "bleak", "hcitool", "bluetoothctl", "ubertooth")
+    valid_modes = ("auto", "dbus", "bleak", "hcitool", "bluetoothctl", "ubertooth", "tscm")
     if mode not in valid_modes:
         return api_error(f"Invalid mode. Must be one of: {valid_modes}", 400)
 
@@ -1002,11 +1002,16 @@ def get_tscm_bluetooth_snapshot(duration: int = 8) -> list[dict]:
 
     # Start scan if not running
     if not scanner.is_scanning:
-        logger.info(f"TSCM snapshot: Scanner not running, starting scan for {duration}s")
-        scanner.start_scan(mode="auto", duration_s=duration)
+        logger.info(f"TSCM snapshot: Scanner not running, starting dual BLE scan for {duration}s")
+        scanner.start_scan(mode="tscm", duration_s=duration)
         time.sleep(duration + 1)
     else:
-        logger.info("TSCM snapshot: Scanner already running, getting current devices")
+        attached = scanner.attach_ubertooth()
+        logger.info(
+            "TSCM snapshot: Scanner already running (backend=%s, ubertooth=%s), getting current devices",
+            getattr(scanner, "_active_backend", None),
+            attached,
+        )
 
     devices = scanner.get_devices()
     logger.info(f"TSCM snapshot: get_devices() returned {len(devices)} devices")
@@ -1077,6 +1082,7 @@ def get_tscm_bluetooth_snapshot(duration: int = 8) -> list[dict]:
             },
             # Service UUIDs for analysis
             "service_uuids": device.service_uuids,
+            "heard_by": list(getattr(device, "heard_by", []) or []),
         }
 
         tscm_devices.append(device_data)

@@ -1858,42 +1858,237 @@ def aircraft_db_delete():
     return jsonify(result)
 
 
-@adsb_bp.route("/aircraft-photo/<registration>")
-def aircraft_photo(registration: str):
-    """Fetch aircraft photo from Planespotters.net API."""
-    import requests
+_PHOTO_UA = "INTERCEPT-ADS-B/2.27 (+https://github.com/smittix/intercept)"
+_PHOTO_HOSTS = (
+    "t.plnspttrs.net",
+    "cdn.planespotters.net",
+    "ps-img-thumbnail.b-cdn.net",
+    "psimg.b-cdn.net",
+    "www.planespotters.net",
+    "api.planespotters.net",
+    "hexdb.io",
+)
+_photo_meta_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_photo_bytes_cache: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
+_PHOTO_META_CACHE_MAX = 256
+_photo_meta_lock = threading.Lock()
 
-    # Validate registration format (alphanumeric with dashes)
-    if not registration or not all(c.isalnum() or c == "-" for c in registration):
-        return api_error("Invalid registration", 400)
+
+def _valid_photo_key(value: str) -> bool:
+    return bool(value) and all(c.isalnum() or c == "-" for c in value)
+
+
+def _photo_host_allowed(url: str) -> bool:
+    from urllib.parse import urlparse
 
     try:
-        # Planespotters.net public API
-        url = f"https://api.planespotters.net/pub/photos/reg/{registration}"
-        resp = requests.get(
-            url, timeout=5, headers={"User-Agent": "INTERCEPT-ADS-B/2.27 (+https://github.com/smittix/intercept)"}
-        )
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return (
+        host in _PHOTO_HOSTS
+        or host.endswith(".plnspttrs.net")
+        or host.endswith(".planespotters.net")
+        or host.endswith(".hexdb.io")
+    )
 
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("photos") and len(data["photos"]) > 0:
-                photo = data["photos"][0]
-                return jsonify(
-                    {
-                        "success": True,
-                        "thumbnail": (photo.get("thumbnail_large") or photo.get("thumbnail") or {}).get("src"),
-                        "link": photo.get("link"),
-                        "photographer": photo.get("photographer"),
-                    }
-                )
 
-        return jsonify({"success": False, "error": "No photo found"})
+def _planespotters_payload(kind: str, ident: str) -> dict[str, Any] | None:
+    """kind is 'reg' or 'hex'. Returns success payload or None if no photo."""
+    import requests
 
+    resp = requests.get(
+        f"https://api.planespotters.net/pub/photos/{kind}/{ident}",
+        timeout=3,
+        headers={"User-Agent": _PHOTO_UA},
+    )
+    if resp.status_code != 200:
+        return None
+    photos = (resp.json() or {}).get("photos") or []
+    if not photos:
+        return None
+    photo = photos[0]
+    src = (photo.get("thumbnail_large") or photo.get("thumbnail") or {}).get("src")
+    if not src:
+        return None
+    return {
+        "success": True,
+        "thumbnail": src,
+        "link": photo.get("link"),
+        "photographer": photo.get("photographer"),
+        "source": "planespotters",
+    }
+
+
+def _hexdb_payload(icao: str) -> dict[str, Any] | None:
+    import requests
+
+    resp = requests.get(
+        f"https://hexdb.io/hex-image-thumb?hex={icao}",
+        timeout=3,
+        headers={"User-Agent": _PHOTO_UA},
+    )
+    if resp.status_code != 200:
+        return None
+    url = (resp.text or "").strip()
+    if not url.startswith("http"):
+        return None
+    return {
+        "success": True,
+        "thumbnail": url,
+        "link": f"https://hexdb.io/?hex={icao}",
+        "photographer": "hexdb.io",
+        "source": "hexdb",
+    }
+
+
+def _lookup_aircraft_photo(key: str, icao: str | None = None) -> dict[str, Any]:
+    """Find a photo via Planespotters (reg then hex) then hexdb. Cache hits and misses."""
+    ident = (key or "").strip().upper()
+    icao_hex = (icao or "").strip().upper()
+    if icao_hex and all(c in "0123456789ABCDEF" for c in icao_hex) and 4 <= len(icao_hex) <= 6:
+        pass
+    else:
+        icao_hex = ""
+
+    cache_key = f"{ident}|{icao_hex}"
+    with _photo_meta_lock:
+        cached = _photo_meta_cache.get(cache_key)
+        if cached is not None:
+            _photo_meta_cache.move_to_end(cache_key)
+            return cached
+
+    payload: dict[str, Any] = {"success": False, "error": "No photo found"}
+    try:
+        attempts = []
+        if ident and not (icao_hex and ident == icao_hex):
+            attempts.append(("reg", ident))
+        if icao_hex:
+            attempts.append(("hex", icao_hex))
+        if ident and ident != icao_hex:
+            attempts.append(("hex", ident))
+
+        for kind, value in attempts:
+            try:
+                found = _planespotters_payload(kind, value)
+            except Exception as exc:
+                logger.debug("planespotters %s/%s failed: %s", kind, value, exc)
+                continue
+            if found:
+                payload = found
+                break
+
+        if not payload.get("success") and icao_hex:
+            try:
+                found = _hexdb_payload(icao_hex)
+                if found:
+                    payload = found
+            except Exception as exc:
+                logger.debug("hexdb %s failed: %s", icao_hex, exc)
+    except Exception as exc:
+        logger.debug("aircraft photo lookup failed for %s/%s: %s", ident, icao_hex, exc)
+        return {"success": False, "error": str(exc)}
+
+    if payload.get("success") and payload.get("thumbnail"):
+        _prefetch_photo_bytes(cache_key, payload["thumbnail"])
+
+    if payload.get("success") or payload.get("error") == "No photo found":
+        with _photo_meta_lock:
+            _photo_meta_cache[cache_key] = payload
+            while len(_photo_meta_cache) > _PHOTO_META_CACHE_MAX:
+                _photo_meta_cache.popitem(last=False)
+    return payload
+
+
+def _prefetch_photo_bytes(cache_key: str, src: str) -> tuple[bytes, str] | None:
+    """Download thumbnail once and keep it in memory for the <img> route."""
+    import requests
+
+    if not src or not _photo_host_allowed(src):
+        return None
+    with _photo_meta_lock:
+        cached = _photo_bytes_cache.get(cache_key)
+        if cached:
+            _photo_bytes_cache.move_to_end(cache_key)
+            return cached
+    referer = "https://hexdb.io/" if "hexdb.io" in src else "https://www.planespotters.net/"
+    try:
+        img = requests.get(src, timeout=5, headers={"User-Agent": _PHOTO_UA, "Referer": referer})
+    except Exception as exc:
+        logger.debug("photo prefetch failed for %s: %s", cache_key, exc)
+        return None
+    if img.status_code != 200 or not img.content:
+        return None
+    content_type = img.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+    if not content_type.startswith("image/"):
+        content_type = "image/jpeg"
+    blob = (img.content, content_type)
+    with _photo_meta_lock:
+        _photo_bytes_cache[cache_key] = blob
+        while len(_photo_bytes_cache) > _PHOTO_META_CACHE_MAX:
+            _photo_bytes_cache.popitem(last=False)
+    return blob
+
+
+def _photo_image_url(key: str, icao: str | None = None) -> str:
+    url = f"/adsb/aircraft-photo/{key}/image"
+    if icao:
+        return f"{url}?icao={icao}"
+    return url
+
+
+@adsb_bp.route("/aircraft-photo/<registration>")
+def aircraft_photo(registration: str):
+    """Fetch aircraft photo metadata (Planespotters, then hexdb)."""
+    import requests
+
+    if not _valid_photo_key(registration):
+        return api_error("Invalid registration", 400)
+
+    icao = (request.args.get("icao") or "").strip().upper() or None
+    try:
+        payload = _lookup_aircraft_photo(registration, icao)
+        if payload.get("success") and payload.get("thumbnail"):
+            payload = dict(payload)
+            payload["image"] = _photo_image_url(registration, icao)
+        return jsonify(payload)
     except requests.Timeout:
         return jsonify({"success": False, "error": "Request timeout"}), 504
     except Exception as e:
         logger.debug(f"Error fetching aircraft photo: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@adsb_bp.route("/aircraft-photo/<registration>/image")
+def aircraft_photo_image(registration: str):
+    """Proxy the thumbnail so the browser only talks to INTERCEPT."""
+    import requests
+
+    if not _valid_photo_key(registration):
+        return api_error("Invalid registration", 400)
+
+    icao = (request.args.get("icao") or "").strip().upper() or None
+    cache_key = f"{registration.strip().upper()}|{(icao or '').strip().upper()}"
+    try:
+        with _photo_meta_lock:
+            cached = _photo_bytes_cache.get(cache_key)
+        if not cached:
+            payload = _lookup_aircraft_photo(registration, icao)
+            src = payload.get("thumbnail") if payload.get("success") else None
+            cached = _prefetch_photo_bytes(cache_key, src or "") if src else None
+        if not cached:
+            return api_error("No photo found", 404)
+
+        body, content_type = cached
+        resp = make_response(body)
+        resp.headers["Content-Type"] = content_type
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+    except requests.Timeout:
+        return api_error("Request timeout", 504)
+    except Exception as e:
+        logger.debug(f"Error proxying aircraft photo: {e}")
+        return api_error("Photo proxy failed", 502)
 
 
 @adsb_bp.route("/aircraft/<icao>/messages")

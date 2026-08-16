@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/core/map-utils.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v={{ version }}&r=maptheme17">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/adsb_dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/adsb_dashboard.css') }}?v=photo-panel-5">
     <!-- Deferred scripts -->
     <script>
         window.INTERCEPT_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
@@ -2850,7 +2850,7 @@ sudo make install</code>
                 }
 
                 if (selectedIcao && aircraft[selectedIcao]) {
-                    showAircraftDetails(selectedIcao);
+                    refreshSelectedAircraftPanel(selectedIcao);
                 }
 
                 pendingUIUpdate = false;
@@ -3339,11 +3339,89 @@ sudo make install</code>
             });
         }
 
+        let renderedSelectedIcao = null;
+        let photoRequestInFlight = {};
+        let photoShownForIcao = null;
+
+        function selectedTelemetry(ac) {
+            const registration = ac.registration || '';
+            const typeCode = ac.type_code || '';
+            const typeDesc = ac.type_desc || '';
+            const militaryInfo = isMilitaryAircraft(ac.icao, ac.callsign);
+            return {
+                callsign: ac.callsign || ac.icao,
+                icao: ac.icao,
+                lat: ac.lat ? ac.lat.toFixed(4) + '°' : 'N/A',
+                lon: ac.lon ? ac.lon.toFixed(4) + '°' : 'N/A',
+                alt: ac.altitude ? ac.altitude.toLocaleString() + ' ft' : 'N/A',
+                speed: ac.speed ? ac.speed + ' kts' : 'N/A',
+                heading: ac.heading ? ac.heading + '°' : 'N/A',
+                squawk: ac.squawk || 'N/A',
+                vrate: ac.vertical_rate !== undefined ? (ac.vertical_rate >= 0 ? '+' : '') + ac.vertical_rate.toLocaleString() + ' ft/min' : 'N/A',
+                vrateColor: ac.vertical_rate > 0 ? '#00ff88' : ac.vertical_rate < 0 ? '#ff6b6b' : '',
+                range: ac.lat ? calculateDistanceNm(observerLocation.lat, observerLocation.lon, ac.lat, ac.lon).toFixed(1) + ' nm' : 'N/A',
+                registration,
+                typeInfo: (typeCode || typeDesc)
+                    ? `${typeDesc || typeCode}${registration ? ' • ' + registration : ''}`
+                    : '',
+                militaryHtml: militaryInfo.military
+                    ? `MILITARY${militaryInfo.country ? ' (' + militaryInfo.country + ')' : ''}`
+                    : ''
+            };
+        }
+
+        function applySelectedTelemetry(t) {
+            const setText = (id, value) => {
+                const el = document.getElementById(id);
+                if (el && el.textContent !== value) el.textContent = value;
+            };
+            setText('selCallsign', t.callsign);
+            setText('selIcao', t.icao);
+            setText('selSquawk', t.squawk);
+            setText('selLat', t.lat);
+            setText('selLon', t.lon);
+            setText('selAlt', t.alt);
+            setText('selSpeed', t.speed);
+            setText('selHeading', t.heading);
+            setText('selVrate', t.vrate);
+            setText('selRange', t.range);
+            const vrateEl = document.getElementById('selVrate');
+            if (vrateEl) vrateEl.style.color = t.vrateColor;
+            const typeEl = document.getElementById('selTypeInfo');
+            if (typeEl) {
+                typeEl.textContent = t.typeInfo;
+                typeEl.style.display = t.typeInfo ? 'block' : 'none';
+            }
+            const badgeEl = document.getElementById('selMilitaryBadge');
+            if (badgeEl) {
+                badgeEl.textContent = t.militaryHtml;
+                badgeEl.style.display = t.militaryHtml ? 'block' : 'none';
+            }
+            const squawkEl = document.getElementById('selSquawk');
+            if (squawkEl) squawkEl.setAttribute('onclick', `showSquawkInfo('${t.squawk}')`);
+        }
+
+        function refreshSelectedAircraftPanel(icao) {
+            if (renderedSelectedIcao === icao && document.getElementById('selCallsign')) {
+                const t = selectedTelemetry(aircraft[icao]);
+                applySelectedTelemetry(t);
+                // Only (re)try the photo if this airframe still has none on screen
+                // and a tail number just arrived.
+                if (photoShownForIcao !== icao) {
+                    ensureAircraftPhoto(t);
+                }
+                return;
+            }
+            showAircraftDetails(icao);
+        }
+
         function showAircraftDetails(icao) {
             const ac = aircraft[icao];
             const container = document.getElementById('selectedInfo');
 
             if (!ac) {
+                renderedSelectedIcao = null;
+                photoShownForIcao = null;
                 container.innerHTML = `
                     <div class="no-aircraft">
                         <div class="no-aircraft-icon">&#9992;</div>
@@ -3352,70 +3430,65 @@ sudo make install</code>
                 return;
             }
 
-            const callsign = ac.callsign || ac.icao;
-            const lat = ac.lat ? ac.lat.toFixed(4) + '°' : 'N/A';
-            const lon = ac.lon ? ac.lon.toFixed(4) + '°' : 'N/A';
-            const alt = ac.altitude ? ac.altitude.toLocaleString() + ' ft' : 'N/A';
-            const speed = ac.speed ? ac.speed + ' kts' : 'N/A';
-            const heading = ac.heading ? ac.heading + '°' : 'N/A';
-            const squawk = ac.squawk || 'N/A';
-            const vrate = ac.vertical_rate !== undefined ? (ac.vertical_rate >= 0 ? '+' : '') + ac.vertical_rate.toLocaleString() + ' ft/min' : 'N/A';
-            const registration = ac.registration || '';
-            const typeCode = ac.type_code || '';
-            const typeDesc = ac.type_desc || '';
-            const militaryInfo = isMilitaryAircraft(ac.icao, ac.callsign);
-            const badge = militaryInfo.military ?
-                `<div style="background:#556b2f;color:#fff;padding:3px 8px;border-radius:4px;font-size:10px;text-align:center;margin-bottom:8px;">MILITARY${militaryInfo.country ? ' (' + militaryInfo.country + ')' : ''}</div>` : '';
-            // Aircraft type info line (shown if available from database)
-            const typeInfo = (typeCode || typeDesc) ?
-                `<div style="color:#00d4ff;font-size:11px;margin-bottom:6px;">${typeDesc || typeCode}${registration ? ' • ' + registration : ''}</div>` : '';
+            const t = selectedTelemetry(ac);
+            const sameAircraft = renderedSelectedIcao === icao && document.getElementById('selCallsign');
+            if (sameAircraft) {
+                applySelectedTelemetry(t);
+                return;
+            }
 
+            renderedSelectedIcao = icao;
+            photoShownForIcao = null;
             container.innerHTML = `
-                <div id="aircraftPhotoContainer" style="display:none;margin-bottom:10px;">
+                <div id="aircraftPhotoContainer" style="margin-bottom:10px;">
                     <a id="aircraftPhotoLink" href="#" target="_blank" rel="noopener">
-                        <img id="aircraftPhoto" src="" alt="Aircraft photo" style="width:100%;border-radius:6px;border:1px solid #333;">
+                        <img id="aircraftPhoto" src="" alt="Aircraft photo" style="width:100%;border-radius:6px;border:1px solid #333;display:none;">
                     </a>
+                    <div id="aircraftPhotoPlaceholder" class="aircraft-photo-placeholder">
+                        <div class="aircraft-photo-glyph">&#9992;</div>
+                        <div id="aircraftPhotoPlaceholderText">Looking up photo…</div>
+                    </div>
                     <div id="aircraftPhotoCredit" style="font-size:9px;color:#666;margin-top:2px;text-align:right;"></div>
                 </div>
-                <div class="selected-callsign">${callsign}</div>
-                ${typeInfo}
-                ${badge}
+                <div class="selected-callsign" id="selCallsign">${t.callsign}</div>
+                <div id="selTypeInfo" style="color:#00d4ff;font-size:11px;margin-bottom:6px;${t.typeInfo ? '' : 'display:none;'}">${t.typeInfo}</div>
+                <div id="selMilitaryBadge" style="background:#556b2f;color:#fff;padding:3px 8px;border-radius:4px;font-size:10px;text-align:center;margin-bottom:8px;${t.militaryHtml ? '' : 'display:none;'}">${t.militaryHtml}</div>
                 <div class="telemetry-grid">
                     <div class="telemetry-item">
                         <div class="telemetry-label">ICAO</div>
-                        <div class="telemetry-value">${ac.icao}</div>
+                        <div class="telemetry-value" id="selIcao">${t.icao}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Squawk</div>
-                        <div class="telemetry-value squawk-clickable" onclick="showSquawkInfo('${squawk}')" title="Click for squawk info">${squawk}</div>
+                        <div class="telemetry-value squawk-clickable" id="selSquawk" onclick="showSquawkInfo('${t.squawk}')" title="Click for squawk info">${t.squawk}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Lat</div>
-                        <div class="telemetry-value">${lat}</div>
+                        <div class="telemetry-value" id="selLat">${t.lat}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Lon</div>
-                        <div class="telemetry-value">${lon}</div>
+                        <div class="telemetry-value" id="selLon">${t.lon}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Altitude</div>
-                        <div class="telemetry-value">${alt}</div>
+                        <div class="telemetry-value" id="selAlt">${t.alt}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Speed</div>
-                        <div class="telemetry-value">${speed}</div>
+                        <div class="telemetry-value" id="selSpeed">${t.speed}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Heading</div>
-                        <div class="telemetry-value">${heading}</div>
+                        <div class="telemetry-value" id="selHeading">${t.heading}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">V/S</div>
-                        <div class="telemetry-value" style="${ac.vertical_rate > 0 ? 'color: #00ff88;' : ac.vertical_rate < 0 ? 'color: #ff6b6b;' : ''}">${vrate}</div>
+                        <div class="telemetry-value" id="selVrate" style="${t.vrateColor ? 'color: ' + t.vrateColor + ';' : ''}">${t.vrate}</div>
                     </div>
                     <div class="telemetry-item">
                         <div class="telemetry-label">Range</div>
-                        <div class="telemetry-value">${ac.lat ? calculateDistanceNm(observerLocation.lat, observerLocation.lon, ac.lat, ac.lon).toFixed(1) + ' nm' : 'N/A'}</div>
+                        <div class="telemetry-value" id="selRange">${t.range}</div>
                     </div>
                 </div>
                 <div id="aircraftAcarsSection" style="margin-top:12px;">
@@ -3426,12 +3499,7 @@ sudo make install</code>
                     <div id="aircraftAcarsMessages" style="font-size:10px;color:var(--text-dim);transition:opacity 0.15s ease;">Loading...</div>
                 </div>`;
 
-            // Fetch aircraft photo if registration is available
-            if (registration) {
-                fetchAircraftPhoto(registration);
-            }
-
-            // Fetch ACARS messages for this aircraft
+            ensureAircraftPhoto(t);
             fetchAircraftMessages(icao);
         }
 
@@ -3566,58 +3634,73 @@ sudo make install</code>
                 '</div>';
         }
 
-        // Cache for aircraft photos to avoid repeated API calls
-        const photoCache = {};
+        function photoCacheKey(registration, icao) {
+            return `${(registration || '').toUpperCase()}|${(icao || '').toUpperCase()}`;
+        }
 
-        async function fetchAircraftPhoto(registration) {
-            // Check cache first (synchronous path — DOM refs are always current here)
-            if (photoCache[registration]) {
-                const cached = photoCache[registration];
-                if (cached.thumbnail) {
-                    const container = document.getElementById('aircraftPhotoContainer');
-                    const img = document.getElementById('aircraftPhoto');
-                    const link = document.getElementById('aircraftPhotoLink');
-                    const credit = document.getElementById('aircraftPhotoCredit');
-                    if (!container || !img) return;
-                    img.src = cached.thumbnail;
-                    link.href = cached.link || '#';
-                    credit.textContent = cached.photographer ? `Photo: ${cached.photographer}` : '';
-                    container.style.display = 'block';
-                }
+        function showPhotoPlaceholder(text) {
+            const img = document.getElementById('aircraftPhoto');
+            const ph = document.getElementById('aircraftPhotoPlaceholder');
+            const label = document.getElementById('aircraftPhotoPlaceholderText');
+            if (img) img.style.display = 'none';
+            if (ph) ph.style.display = 'flex';
+            if (label && text) label.textContent = text;
+        }
+
+        function ensureAircraftPhoto(t) {
+            const ident = t.registration || t.icao;
+            if (!ident) {
+                showPhotoPlaceholder('No tail / ICAO yet');
                 return;
             }
-
-            // Guard: bail early if the panel doesn't exist yet
-            if (!document.getElementById('aircraftPhotoContainer')) return;
-
-            try {
-                const response = await fetch(`/adsb/aircraft-photo/${encodeURIComponent(registration)}`);
-                const data = await response.json();
-
-                // Cache before touching DOM — subsequent synchronous calls will hit this
-                photoCache[registration] = data;
-
-                // Re-query after the await: showAircraftDetails rebuilds innerHTML on every
-                // RAF update, so refs captured before the await may point to detached nodes.
-                const container = document.getElementById('aircraftPhotoContainer');
-                const img = document.getElementById('aircraftPhoto');
-                const link = document.getElementById('aircraftPhotoLink');
-                const credit = document.getElementById('aircraftPhotoCredit');
-                if (!container || !img) return;
-
-                if (data.success && data.thumbnail) {
-                    img.src = data.thumbnail;
-                    link.href = data.link || '#';
-                    credit.textContent = data.photographer ? `Photo: ${data.photographer}` : '';
-                    container.style.display = 'block';
-                } else {
-                    container.style.display = 'none';
-                }
-            } catch (err) {
-                console.debug('Failed to fetch aircraft photo:', err);
-                const container = document.getElementById('aircraftPhotoContainer');
-                if (container) container.style.display = 'none';
+            const img = document.getElementById('aircraftPhoto');
+            if (photoShownForIcao === t.icao && img && img.dataset.photoBound === '1') {
+                return;
             }
+            fetchAircraftPhoto(t.registration, t.icao);
+        }
+
+        function fetchAircraftPhoto(registration, icao) {
+            const key = photoCacheKey(registration, icao);
+            const img = document.getElementById('aircraftPhoto');
+            const link = document.getElementById('aircraftPhotoLink');
+            const credit = document.getElementById('aircraftPhotoCredit');
+            const ph = document.getElementById('aircraftPhotoPlaceholder');
+            if (!img) return;
+            if (photoRequestInFlight[key] || img.dataset.photoKey === key) return;
+
+            const ident = encodeURIComponent(registration || icao);
+            const src = `/adsb/aircraft-photo/${ident}/image${icao ? '?icao=' + encodeURIComponent(icao) : ''}`;
+
+            photoRequestInFlight[key] = true;
+            img.dataset.photoKey = key;
+            showPhotoPlaceholder('Looking up photo…');
+
+            const failTimer = setTimeout(() => {
+                if (photoShownForIcao !== icao) {
+                    showPhotoPlaceholder('Photo unavailable');
+                }
+                delete photoRequestInFlight[key];
+            }, 10000);
+
+            img.onload = () => {
+                clearTimeout(failTimer);
+                img.style.display = 'block';
+                if (ph) ph.style.display = 'none';
+                img.dataset.photoBound = '1';
+                photoShownForIcao = icao;
+                delete photoRequestInFlight[key];
+            };
+            img.onerror = () => {
+                clearTimeout(failTimer);
+                img.dataset.photoKey = '';
+                img.dataset.photoBound = '';
+                showPhotoPlaceholder('No photo on file');
+                delete photoRequestInFlight[key];
+            };
+            if (link) link.href = src;
+            if (credit) credit.textContent = '';
+            img.src = src;
         }
 
         function cleanupOldAircraft() {
@@ -3639,6 +3722,7 @@ sudo make install</code>
 
                     if (selectedIcao === icao) {
                         selectedIcao = null;
+                        photoShownForIcao = null;
                         showAircraftDetails(null);
                         updateFlightLookupBtn();
                         highlightSidebarMessages(null);
